@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>API d'ajout de marchand - PSP Onboarding</title>
+  <style>
+    body { font-family: 'Segoe UI', Calibri, Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 2rem; color: #333; line-height: 1.5; }
+    h1 { font-size: 1.75rem; border-bottom: 2px solid #2563eb; padding-bottom: 0.5rem; margin-top: 0; }
+    h2 { font-size: 1.25rem; margin-top: 1.5rem; color: #1e40af; }
+    h3 { font-size: 1.1rem; margin-top: 1rem; }
+    p { margin: 0.5rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.95rem; }
+    th, td { border: 1px solid #cbd5e1; padding: 0.5rem 0.75rem; text-align: left; }
+    th { background: #f1f5f9; font-weight: 600; }
+    code { background: #f1f5f9; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.9em; }
+    pre { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.85rem; }
+    pre code { background: none; padding: 0; color: inherit; }
+    ul { margin: 0.5rem 0; padding-left: 1.5rem; }
+    li { margin: 0.25rem 0; }
+    .note { background: #eff6ff; border-left: 4px solid #2563eb; padding: 0.75rem 1rem; margin: 1rem 0; }
+    @media print { body { padding: 1rem; } pre { white-space: pre-wrap; } }
+  </style>
+</head>
+<body>
+  <h1>API d'ajout de marchand</h1>
+  <p><strong>Plateforme Onboarding Marchands PSP</strong></p>
+  <p>Deux façons d'ajouter un marchand (affilié) : <strong>API v1 (clé API)</strong> pour les systèmes externes, ou <strong>API authentifiée (JWT)</strong> pour les utilisateurs connectés.</p>
+
+  <h2>1. API v1 (clé API) — pour l'intégration externe</h2>
+  <p><strong>URL :</strong> <code>POST /api/v1/affiliates</code></p>
+  <p><strong>Authentification :</strong> en-tête <code>X-API-Key</code> avec la clé configurée (Configuration &gt; EXTERNAL_API_KEY).</p>
+
+  <h3>Exemple avec cURL</h3>
+  <pre><code>curl -X POST "https://votre-domaine/api/v1/affiliates" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: VOTRE_CLE_API" \
+  -d '{
+    "merchant_code": "2490002546",
+    "company_name": "Ma Société SARL",
+    "email": "contact@exemple.com",
+    "technical_email": "tech@exemple.com"
+  }'</code></pre>
+
+  <h3>Exemple avec JavaScript (fetch)</h3>
+  <pre><code>const response = await fetch('/api/v1/affiliates', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-API-Key': 'VOTRE_CLE_API',
+  },
+  body: JSON.stringify({
+    merchant_code: '2490002546',
+    company_name: 'Ma Société SARL',
+    email: 'contact@exemple.com',
+    technical_email: 'tech@exemple.com',
+  }),
+});
+const data = await response.json();</code></pre>
+
+  <h3>Corps de la requête (JSON)</h3>
+  <table>
+    <thead>
+      <tr><th>Champ</th><th>Obligatoire</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>merchant_code</td><td>Oui</td><td>Code marchand (ex. Affiliation)</td></tr>
+      <tr><td>company_name</td><td>Oui</td><td>Raison sociale</td></tr>
+      <tr><td>email</td><td>Oui</td><td>Email contact</td></tr>
+      <tr><td>technical_email</td><td>Oui</td><td>Email technique / Webmaster</td></tr>
+      <tr><td>numero_terminal</td><td>Non</td><td>Numéro terminal</td></tr>
+      <tr><td>trade_name</td><td>Non</td><td>Nom commercial</td></tr>
+      <tr><td>address</td><td>Non</td><td>Adresse</td></tr>
+      <tr><td>city</td><td>Non</td><td>Ville</td></tr>
+      <tr><td>postal_code</td><td>Non</td><td>Code postal (CDP)</td></tr>
+      <tr><td>country</td><td>Non</td><td>Pays</td></tr>
+      <tr><td>phone</td><td>Non</td><td>Téléphone</td></tr>
+      <tr><td>mcc_code</td><td>Non</td><td>Code MCC</td></tr>
+      <tr><td>website</td><td>Non</td><td>URL</td></tr>
+      <tr><td>currency</td><td>Non</td><td>Devise</td></tr>
+      <tr><td>iban</td><td>Non</td><td>RIB</td></tr>
+      <tr><td>rne</td><td>Non</td><td>RNE</td></tr>
+      <tr><td>date_creation</td><td>Non</td><td>Date création (brut)</td></tr>
+      <tr><td>date_modification</td><td>Non</td><td>Date modification (brut)</td></tr>
+      <tr><td>type_cartes</td><td>Non</td><td>Type cartes</td></tr>
+    </tbody>
+  </table>
+  <p>Noms alternatifs acceptés (ex. pour alignement Excel) : <code>CODE_MARCHAND</code>, <code>RAISON_SOCIALE</code>, <code>EMAIL</code>, <code>EMAIL_TECHNIQUE</code>, <code>ADRESSE</code>, <code>TEL</code>, <code>CODE_POSTAL</code>, <code>DEVISE</code>, <code>MCC</code>, <code>SITE_WEB</code>, <code>IBAN</code>, etc.</p>
+
+  <h3>Réponse succès (201)</h3>
+  <pre><code>{
+  "affiliate_id": "uuid-du-marchand",
+  "merchant_code": "2490002546",
+  "status": "CREATED_MERCHANT_MGT",
+  "created_at": "2025-02-28T12:00:00.000Z"
+}</code></pre>
+
+  <h3>Erreurs possibles</h3>
+  <ul>
+    <li><strong>401</strong> — Clé API manquante ou invalide : vérifier l'en-tête <code>X-API-Key</code> et la valeur dans Configuration (EXTERNAL_API_KEY).</li>
+    <li><strong>400</strong> — Champs obligatoires manquants : <code>merchant_code</code>, <code>company_name</code>, <code>email</code>, <code>technical_email</code>.</li>
+    <li><strong>400</strong> — Ce code marchand existe déjà : un marchand avec ce <code>merchant_code</code> existe déjà (création refusée).</li>
+  </ul>
+
+  <h2>2. API authentifiée (JWT) — pour l'application web</h2>
+  <p><strong>URL :</strong> <code>POST /api/affiliates</code></p>
+  <p><strong>Authentification :</strong> <code>Authorization: Bearer &lt;access_token&gt;</code> (obtenu via login).</p>
+  <p>Réservée aux rôles <strong>ADMIN</strong>, <strong>SUPPORT</strong>, <strong>SUPER_ADMIN</strong>. Corps de la requête : identique à l'API v1. Réponse : même format en 201.</p>
+
+  <h2>Configuration de la clé API (v1)</h2>
+  <ol>
+    <li>Se connecter à l'application (admin).</li>
+    <li>Aller dans <strong>Configuration</strong>.</li>
+    <li>Modifier la clé <strong>EXTERNAL_API_KEY</strong> (ex. générer une valeur longue et secrète).</li>
+    <li>Utiliser cette valeur dans l'en-tête <code>X-API-Key</code> pour les appels à <code>/api/v1/affiliates</code>.</li>
+  </ol>
+
+  <p style="margin-top: 2rem; font-size: 0.9rem; color: #64748b;">Document généré pour la plateforme PSP Onboarding.</p>
+</body>
+</html>

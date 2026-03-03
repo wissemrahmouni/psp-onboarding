@@ -1,0 +1,203 @@
+// P2 — Schéma complet Plateforme Onboarding Marchands PSP
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  SUPPORT
+  BANQUE
+  PAYFAC
+}
+
+enum AffiliateStatus {
+  CREATED_MERCHANT_MGT
+  AFFILIATION_CREATED
+  TEST_PARAMS_SENT
+  TESTS_VALIDATED
+  PROD_PARAMS_SENT
+  IN_PRODUCTION
+}
+
+enum ImportStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id          String    @id @default(cuid())
+  email       String    @unique
+  password    String
+  firstName   String
+  lastName    String
+  role        UserRole
+  isActive    Boolean   @default(true)
+  bankId      String?
+  bank        Bank?     @relation(fields: [bankId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  lastLoginAt DateTime?
+
+  affiliatesCreated   Affiliate[]         @relation("CreatedBy")
+  affiliatesValidated Affiliate[]         @relation("ValidatedBy")
+  affiliateHistories  AffiliateHistory[]  @relation("ChangedBy")
+  testValidations     TestValidation[]
+  importBatches       ImportBatch[]
+  auditLogs           AuditLog[]
+  configsUpdated      Configuration[]   @relation("ConfigUpdatedBy")
+}
+
+model Bank {
+  id           String    @id @default(cuid())
+  name         String
+  code         String    @unique
+  contactEmail String?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+
+  users      User[]
+  affiliates Affiliate[]
+}
+
+model Affiliate {
+  id                 String           @id @default(uuid())
+  merchant_code      String           @unique
+  numero_terminal    String?          // Numero Terminal (fichier AFFILIATION)
+  company_name       String
+  trade_name         String?
+  activity           String?
+  address            String?
+  city               String?
+  postal_code        String?
+  country            String?
+  phone              String?
+  email              String
+  technical_email    String
+  contact_name       String?
+  contact_firstname  String?
+  website            String?
+  currency           String?
+  mcc_code           String?
+  iban               String?
+  bic                String?
+  rne                String?          // RNE (fichier AFFILIATION)
+  date_creation      String?         // Date Creation (brut Excel)
+  date_modification  String?         // Date Modification (brut Excel)
+  type_cartes        String?         // Type Cartes (fichier AFFILIATION)
+  bankId             String?
+  bank               Bank?            @relation(fields: [bankId], references: [id])
+  status             AffiliateStatus  @default(CREATED_MERCHANT_MGT)
+
+  test_login           String?
+  test_password_hash  String?
+  test_params_sent_at DateTime?
+
+  prod_login           String?
+  prod_password_hash   String?
+  prod_params_sent_at DateTime?
+
+  tests_validated_at DateTime?
+  tests_validated_by String?
+  testsValidatedBy   User?            @relation("ValidatedBy", fields: [tests_validated_by], references: [id])
+
+  import_batch_id String?
+  importBatch    ImportBatch?       @relation(fields: [import_batch_id], references: [id])
+  created_by     String
+  createdBy     User               @relation("CreatedBy", fields: [created_by], references: [id])
+  affiliation_date DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  histories       AffiliateHistory[]
+  testValidations TestValidation[]
+}
+
+model ImportBatch {
+  id           String       @id @default(cuid())
+  filename     String
+  file_path    String
+  imported_by  String
+  importedBy   User         @relation(fields: [imported_by], references: [id])
+  total_rows   Int
+  success_count Int
+  error_count  Int
+  status       ImportStatus
+  error_log    Json?
+  createdAt    DateTime     @default(now())
+  completedAt DateTime?
+
+  affiliates Affiliate[]
+}
+
+model AffiliateHistory {
+  id          String   @id @default(cuid())
+  affiliate_id String
+  affiliate   Affiliate @relation(fields: [affiliate_id], references: [id], onDelete: Cascade)
+  old_status  AffiliateStatus?
+  new_status  AffiliateStatus
+  changed_by  String
+  changedBy   User     @relation("ChangedBy", fields: [changed_by], references: [id])
+  comment     String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+}
+
+model TestValidation {
+  id                      String    @id @default(cuid())
+  affiliate_id            String
+  affiliate               Affiliate @relation(fields: [affiliate_id], references: [id], onDelete: Cascade)
+  checked_by              String
+  checkedBy               User      @relation(fields: [checked_by], references: [id])
+  api_response            Json
+  transactions_found     Int
+  criteria_success_status Boolean
+  criteria_return_code    Boolean
+  criteria_auth_number    Boolean
+  criteria_reference      Boolean
+  criteria_card_type      Boolean
+  criteria_scenarios      Boolean
+  overall_result          Boolean
+  operator_comment        String?
+  createdAt               DateTime  @default(now())
+}
+
+enum ConfigCategory {
+  TEST_DOC
+  PROD_DOC
+  SMTP
+  API
+  GENERAL
+}
+
+model Configuration {
+  id          String         @id @default(cuid())
+  key         String         @unique
+  value       String         @db.Text
+  description String?
+  category    ConfigCategory?
+  updatedBy   String?
+  updatedByUser User?        @relation("ConfigUpdatedBy", fields: [updatedBy], references: [id])
+  updatedAt   DateTime       @updatedAt
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  action      String
+  resource    String
+  resource_id String?
+  ip_address  String?
+  user_agent  String?
+  payload     Json?
+  createdAt   DateTime @default(now())
+}

@@ -1,0 +1,70 @@
+# Production — build frontend en statique, Nginx sert le frontend
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: psp-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: psp_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - psp_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: psp-backend
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/psp_db
+    volumes:
+      - uploads_data:/app/uploads
+    networks:
+      - psp_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    container_name: psp-frontend
+    volumes:
+      - frontend_dist:/output
+    networks:
+      - psp_network
+
+  nginx:
+    image: nginx:alpine
+    container_name: psp-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - frontend_dist:/usr/share/nginx/html:ro
+    networks:
+      - psp_network
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  postgres_data:
+  uploads_data:
+  frontend_dist:
+
+networks:
+  psp_network:
+    driver: bridge
