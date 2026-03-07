@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
+import { safeParseJson, fetchWithAuth } from '@/services/api';
 
 export function ImportPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -35,13 +36,11 @@ export function ImportPage() {
     setResult(null);
     const formData = new FormData();
     formData.append('file', file);
-    const token = (window as unknown as { __psp_access_token?: string }).__psp_access_token;
-    fetch('/api/affiliates/import/excel', {
+    fetchWithAuth('/api/affiliates/import/excel', {
       method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: formData,
     })
-      .then((r) => r.json())
+      .then((r) => safeParseJson(r, { batch_id: '', success_count: 0, error_count: 0, errors: [] }))
       .then((data) => {
         setResult(data);
         setFile(null);
@@ -51,8 +50,7 @@ export function ImportPage() {
   };
 
   const downloadTemplate = () => {
-    const token = (window as unknown as { __psp_access_token?: string }).__psp_access_token;
-    fetch('/api/affiliates/template', { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    fetchWithAuth('/api/affiliates/template')
       .then((r) => r.blob())
       .then((blob) => {
         const a = document.createElement('a');

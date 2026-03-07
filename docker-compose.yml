@@ -2,6 +2,8 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: psp-postgres
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -39,6 +41,7 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/psp_db
+      PORT: 80
     volumes:
       - uploads_data:/app/uploads
     networks:
@@ -53,7 +56,7 @@ services:
       dockerfile: Dockerfile
     container_name: psp-frontend
     ports:
-      - "3000:3000"
+      - "3002:3000"
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -61,6 +64,7 @@ services:
       - psp_network
     environment:
       VITE_API_URL: /api
+      VITE_PROXY_TARGET: http://backend:80
 
   nginx:
     image: nginx:alpine
@@ -73,8 +77,10 @@ services:
     networks:
       - psp_network
     depends_on:
-      - backend
-      - frontend
+      backend:
+        condition: service_started
+      frontend:
+        condition: service_started
 
 volumes:
   postgres_data:

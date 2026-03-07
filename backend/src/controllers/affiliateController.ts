@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import fs from 'fs/promises';
 import crypto from 'crypto';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import { prisma } from '../services/prisma';
 import {
   parseExcelBuffer,
@@ -9,12 +9,19 @@ import {
   rowToAffiliateUpdate,
   buildTemplateBuffer,
 } from '../services/excelImport';
-import { sendParamsEmail, isEmailConfigured } from '../services/emailService';
+import { sendParamsEmail, sendCustomEmail, isEmailConfigured } from '../services/emailService';
 import { verifyMerchantTests, isClicToPayConfigured } from '../services/clictopayService';
 import { AffiliateStatus } from '@prisma/client';
 
 function generateTempPassword(): string {
   return crypto.randomBytes(8).toString('base64').replace(/[+/=]/g, '').slice(0, 12);
+}
+
+/** Résout un affilié par id (UUID) ou merchant_code */
+async function findAffiliateByIdOrCode(idOrCode: string) {
+  const affiliate = await prisma.affiliate.findUnique({ where: { id: idOrCode } });
+  if (affiliate) return affiliate;
+  return prisma.affiliate.findUnique({ where: { merchant_code: idOrCode } });
 }
 
 export async function importExcel(req: Request, res: Response) {
@@ -223,11 +230,57 @@ export async function createFromApi(req: Request, res: Response) {
       comment: 'API externe',
     },
   });
+
+  // Envoi de l'email de bienvenue à email et technical_email, puis enregistrement dans l'historique
+  let welcomeEmailSent = false;
+  const welcomeRecipients = [...new Set([email, technical_email].filter(Boolean))];
+  if (welcomeRecipients.length > 0) {
+    const welcomeSubject = `Bienvenue sur la plateforme PSP Onboarding - ${company_name}`;
+    const welcomeText = `Bonjour,
+
+Bienvenue sur la plateforme PSP Onboarding.
+
+Votre affiliation a été créée avec le code marchand : ${merchant_code}.
+
+Notre équipe vous contactera prochainement pour la suite du processus d'onboarding.
+
+Cordialement,
+L'équipe PSP Onboarding`;
+
+    const results: string[] = [];
+    const isConfigured = await isEmailConfigured();
+    if (!isConfigured) {
+      console.warn('[API] Email de bienvenue non envoyé : configuration SMTP manquante (Configuration > SMTP ou variables SMTP_* dans .env)');
+      results.push(...welcomeRecipients.map((to) => `${to} (échec: SMTP non configuré)`));
+    } else {
+      for (const to of welcomeRecipients) {
+        const emailResult = await sendCustomEmail(to, welcomeSubject, welcomeText);
+        results.push(emailResult.success ? `${to} (OK)` : `${to} (échec: ${emailResult.error || 'Erreur inconnue'})`);
+        if (emailResult.success) welcomeEmailSent = true;
+      }
+    }
+    const allSuccess = results.every((r) => r.endsWith('(OK)'));
+    try {
+      await prisma.affiliateHistory.create({
+        data: {
+          affiliate_id: affiliate.id,
+          new_status: 'CREATED_MERCHANT_MGT',
+          changed_by: createdBy,
+          comment: `Email de bienvenue envoyé à ${welcomeRecipients.join(', ')}: ${results.join(' ; ')}`,
+          metadata: { event: 'welcome_email', recipients: welcomeRecipients, results: results, success: allSuccess },
+        },
+      });
+    } catch (histErr) {
+      console.error('[API] Erreur enregistrement historique email de bienvenue:', histErr);
+    }
+  }
+
   return res.status(201).json({
     affiliate_id: affiliate.id,
     merchant_code: affiliate.merchant_code,
     status: affiliate.status,
     created_at: affiliate.createdAt,
+    welcome_email_sent: welcomeEmailSent,
   });
 }
 
@@ -324,8 +377,10 @@ export async function purge(req: Request, res: Response) {
 export async function getById(req: Request, res: Response) {
   if (!req.user) return res.status(401).json({ message: 'Non authentifié' });
   const { id } = req.params;
-  const affiliate = await prisma.affiliate.findUnique({
-    where: { id },
+  const affiliate = await findAffiliateByIdOrCode(id);
+  if (!affiliate) return res.status(404).json({ message: 'Affilié non trouvé' });
+  const full = await prisma.affiliate.findUnique({
+    where: { id: affiliate.id },
     include: {
       bank: true,
       createdBy: { select: { id: true, email: true, firstName: true, lastName: true } },
@@ -339,11 +394,11 @@ export async function getById(req: Request, res: Response) {
       },
     },
   });
-  if (!affiliate) return res.status(404).json({ message: 'Affilié non trouvé' });
-  if (req.user.role === 'BANQUE' && req.user.bankId && affiliate.bankId !== req.user.bankId) {
+  if (!full) return res.status(404).json({ message: 'Affilié non trouvé' });
+  if (req.user.role === 'BANQUE' && req.user.bankId && full.bankId !== req.user.bankId) {
     return res.status(403).json({ message: 'Accès refusé' });
   }
-  const { test_password_hash, prod_password_hash, ...safe } = affiliate;
+  const { test_password_hash, prod_password_hash, ...safe } = full;
   return res.json(safe);
 }
 
@@ -388,7 +443,7 @@ export async function exportAffiliates(req: Request, res: Response) {
 export async function sendTestParams(req: Request, res: Response) {
   if (!req.user) return res.status(401).json({ message: 'Non authentifié' });
   const { id } = req.params;
-  const affiliate = await prisma.affiliate.findUnique({ where: { id } });
+  const affiliate = await findAffiliateByIdOrCode(id);
   if (!affiliate) return res.status(404).json({ message: 'Affilié non trouvé' });
   if (req.user.role === 'BANQUE' && affiliate.bankId !== req.user.bankId) {
     return res.status(403).json({ message: 'Accès refusé' });
@@ -398,7 +453,7 @@ export async function sendTestParams(req: Request, res: Response) {
   const passwordHash = await bcrypt.hash(tempPassword, 10);
   const now = new Date();
   await prisma.affiliate.update({
-    where: { id },
+    where: { id: affiliate.id },
     data: {
       test_login: login,
       test_password_hash: passwordHash,
@@ -409,9 +464,10 @@ export async function sendTestParams(req: Request, res: Response) {
   const subject = `[PSP Onboarding] Paramètres de test - ${affiliate.company_name} (${affiliate.merchant_code})`;
   const text = `Bonjour,\n\nVos identifiants pour l'environnement de TEST sont :\n\nLogin : ${login}\nMot de passe : ${tempPassword}\n\nÀ changer à la première connexion.\n\n— Plateforme PSP Onboarding`;
   const sent = await sendParamsEmail(to, subject, text);
+  const emailConfigured = await isEmailConfigured();
   return res.json({
     sent,
-    message: sent ? 'Paramètres de test envoyés par email.' : (isEmailConfigured() ? 'Échec envoi email.' : 'SMTP non configuré. Enregistrement mis à jour uniquement.'),
+    message: sent ? 'Paramètres de test envoyés par email.' : (emailConfigured ? 'Échec envoi email.' : 'SMTP non configuré. Enregistrement mis à jour uniquement.'),
     test_params_sent_at: now,
   });
 }
@@ -419,7 +475,7 @@ export async function sendTestParams(req: Request, res: Response) {
 export async function sendProdParams(req: Request, res: Response) {
   if (!req.user) return res.status(401).json({ message: 'Non authentifié' });
   const { id } = req.params;
-  const affiliate = await prisma.affiliate.findUnique({ where: { id } });
+  const affiliate = await findAffiliateByIdOrCode(id);
   if (!affiliate) return res.status(404).json({ message: 'Affilié non trouvé' });
   if (req.user.role === 'BANQUE' && affiliate.bankId !== req.user.bankId) {
     return res.status(403).json({ message: 'Accès refusé' });
@@ -429,7 +485,7 @@ export async function sendProdParams(req: Request, res: Response) {
   const passwordHash = await bcrypt.hash(tempPassword, 10);
   const now = new Date();
   await prisma.affiliate.update({
-    where: { id },
+    where: { id: affiliate.id },
     data: {
       prod_login: login,
       prod_password_hash: passwordHash,
@@ -440,18 +496,45 @@ export async function sendProdParams(req: Request, res: Response) {
   const subject = `[PSP Onboarding] Paramètres de production - ${affiliate.company_name} (${affiliate.merchant_code})`;
   const text = `Bonjour,\n\nVos identifiants pour l'environnement de PRODUCTION sont :\n\nLogin : ${login}\nMot de passe : ${tempPassword}\n\nÀ changer à la première connexion.\n\n— Plateforme PSP Onboarding`;
   const sent = await sendParamsEmail(to, subject, text);
+  const emailConfigured = await isEmailConfigured();
   return res.json({
     sent,
-    message: sent ? 'Paramètres de production envoyés par email.' : (isEmailConfigured() ? 'Échec envoi email.' : 'SMTP non configuré. Enregistrement mis à jour uniquement.'),
+    message: sent ? 'Paramètres de production envoyés par email.' : (emailConfigured ? 'Échec envoi email.' : 'SMTP non configuré. Enregistrement mis à jour uniquement.'),
     prod_params_sent_at: now,
   });
+}
+
+export async function sendEmail(req: Request, res: Response) {
+  if (!req.user) return res.status(401).json({ message: 'Non authentifié' });
+  const { id } = req.params;
+  const affiliate = await findAffiliateByIdOrCode(id);
+  if (!affiliate) return res.status(404).json({ message: 'Affilié non trouvé' });
+  if (req.user.role === 'BANQUE' && affiliate.bankId !== req.user.bankId) {
+    return res.status(403).json({ message: 'Accès refusé' });
+  }
+  const { to, subject, text, html, cc, bcc } = req.body as { to?: string; subject?: string; text?: string; html?: string; cc?: string; bcc?: string };
+  if (!to?.trim() || !subject?.trim() || !text?.trim()) {
+    return res.status(400).json({ message: 'Champs obligatoires : to, subject, text' });
+  }
+  const files = req.files as Express.Multer.File[] | undefined;
+  const attachments = files?.filter((f) => f.buffer).map((f) => ({ filename: f.originalname, content: f.buffer })) ?? [];
+  const result = await sendCustomEmail(to.trim(), subject.trim(), text.trim(), {
+    html: html?.trim(),
+    cc: cc?.trim(),
+    bcc: bcc?.trim(),
+    attachments: attachments.length ? attachments : undefined,
+  });
+  if (result.success) {
+    return res.json({ success: true, message: 'Email envoyé avec succès' });
+  }
+  return res.status(500).json({ success: false, message: 'Échec de l\'envoi', error: result.error });
 }
 
 export async function verifyTests(req: Request, res: Response) {
   if (!req.user) return res.status(401).json({ message: 'Non authentifié' });
   const { id } = req.params;
   const { operator_comment } = req.body as { operator_comment?: string };
-  const affiliate = await prisma.affiliate.findUnique({ where: { id } });
+  const affiliate = await findAffiliateByIdOrCode(id);
   if (!affiliate) return res.status(404).json({ message: 'Affilié non trouvé' });
   if (req.user.role === 'BANQUE' && affiliate.bankId !== req.user.bankId) {
     return res.status(403).json({ message: 'Accès refusé' });
@@ -470,7 +553,7 @@ export async function verifyTests(req: Request, res: Response) {
   };
   const validation = await prisma.testValidation.create({
     data: {
-      affiliate_id: id,
+      affiliate_id: affiliate.id,
       checked_by: req.user.userId,
       api_response: payload.api_response as object,
       transactions_found: payload.transactions_found,
@@ -485,7 +568,7 @@ export async function verifyTests(req: Request, res: Response) {
     },
   });
   await prisma.affiliate.update({
-    where: { id },
+    where: { id: affiliate.id },
     data: {
       tests_validated_at: new Date(),
       tests_validated_by: req.user.userId,
@@ -508,7 +591,7 @@ export async function updateStatus(req: Request, res: Response) {
   const { id } = req.params;
   const { new_status, comment } = req.body as { new_status?: AffiliateStatus; comment?: string };
   if (!new_status) return res.status(400).json({ message: 'new_status requis' });
-  const affiliate = await prisma.affiliate.findUnique({ where: { id } });
+  const affiliate = await findAffiliateByIdOrCode(id);
   if (!affiliate) return res.status(404).json({ message: 'Affilié non trouvé' });
   if (req.user.role === 'BANQUE' && affiliate.bankId !== req.user.bankId) {
     return res.status(403).json({ message: 'Accès refusé' });
@@ -519,7 +602,7 @@ export async function updateStatus(req: Request, res: Response) {
   }
   const [updated] = await prisma.$transaction([
     prisma.affiliate.update({
-      where: { id },
+      where: { id: affiliate.id },
       data: {
         status: new_status,
         ...(new_status === 'AFFILIATION_CREATED' && { affiliation_date: new Date() }),
@@ -527,7 +610,7 @@ export async function updateStatus(req: Request, res: Response) {
     }),
     prisma.affiliateHistory.create({
       data: {
-        affiliate_id: id,
+        affiliate_id: affiliate.id,
         old_status: affiliate.status,
         new_status,
         changed_by: req.user.userId,
@@ -537,4 +620,23 @@ export async function updateStatus(req: Request, res: Response) {
   ]);
   const { test_password_hash, prod_password_hash, ...safe } = updated;
   return res.json(safe);
+}
+
+export async function deleteAffiliate(req: Request, res: Response) {
+  if (!req.user) return res.status(401).json({ message: 'Non authentifié' });
+  const { id } = req.params;
+  const affiliate = await findAffiliateByIdOrCode(id);
+  if (!affiliate) return res.status(404).json({ message: 'Affilié non trouvé' });
+  if (req.user.role === 'BANQUE' && affiliate.bankId !== req.user.bankId) {
+    return res.status(403).json({ message: 'Accès refusé' });
+  }
+  try {
+    await prisma.affiliate.delete({ where: { id: affiliate.id } });
+    return res.json({ message: `Affilié ${affiliate.merchant_code} supprimé avec succès.` });
+  } catch (err) {
+    console.error('Delete affiliate error:', err);
+    return res.status(500).json({
+      message: err instanceof Error ? err.message : 'Erreur lors de la suppression de l\'affilié',
+    });
+  }
 }

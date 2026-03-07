@@ -4,6 +4,7 @@
   "description": "Plateforme Onboarding Marchands PSP",
   "scripts": {
     "dev": "docker-compose up -d && echo 'Lancer backend et frontend en local si besoin'",
+    "dev:setup": "powershell -ExecutionPolicy Bypass -File ./scripts/dev-setup.ps1",
     "deploy": "bash scripts/deploy.sh",
     "backup": "bash scripts/backup-db.sh",
     "logs": "docker-compose logs -f",

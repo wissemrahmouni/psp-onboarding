@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { apiRequest } from '@/services/api';
+import { apiRequest, fetchWithAuth } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { StatusBadge } from '@/components/StatusBadge';
 
@@ -31,6 +31,10 @@ export function AffiliatesPage() {
   const [purging, setPurging] = useState(false);
   const [purgeError, setPurgeError] = useState<string | null>(null);
   const [purgeSuccess, setPurgeSuccess] = useState<string | null>(null);
+  const [deleteModal, setDeleteModal] = useState<{ open: boolean; affiliate: AffiliateRow | null }>({ open: false, affiliate: null });
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteSuccess, setDeleteSuccess] = useState<string | null>(null);
   const { hasAnyRole } = useAuth();
   const page = parseInt(searchParams.get('page') || '1', 10);
   const status = searchParams.get('status') || '';
@@ -48,9 +52,8 @@ export function AffiliatesPage() {
   }, [page, status, search]);
 
   const downloadExport = (format: 'csv' | 'xlsx') => {
-    const token = (window as unknown as { __psp_access_token?: string }).__psp_access_token;
     const url = `/api/affiliates/export?format=${format}${status ? `&status=${status}` : ''}`;
-    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    fetchWithAuth(url)
       .then((r) => r.blob())
       .then((blob) => {
         const a = document.createElement('a');
@@ -85,6 +88,24 @@ export function AffiliatesPage() {
         setPurgeError(err?.message || 'Erreur lors de la purge. Vérifiez la console réseau (F12).');
       })
       .finally(() => setPurging(false));
+  };
+
+  const confirmDelete = () => {
+    if (!deleteModal.affiliate) return;
+    setDeleteError(null);
+    setDeleteSuccess(null);
+    setDeleting(true);
+    apiRequest<{ message: string }>(`/api/affiliates/${deleteModal.affiliate.id}`, { method: 'DELETE' })
+      .then((data) => {
+        setDeleteModal({ open: false, affiliate: null });
+        setDeleteSuccess(data.message || 'Affilié supprimé avec succès.');
+        return apiRequest<ListResponse>(`/api/affiliates?${searchParams.toString()}`);
+      })
+      .then(setRes)
+      .catch((err: { message?: string }) => {
+        setDeleteError(err?.message || 'Erreur lors de la suppression. Vérifiez la console réseau (F12).');
+      })
+      .finally(() => setDeleting(false));
   };
 
   return (
@@ -172,6 +193,9 @@ export function AffiliatesPage() {
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ville</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Créé le</th>
+                    {hasAnyRole(['SUPER_ADMIN', 'ADMIN', 'SUPPORT']) && (
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -191,6 +215,18 @@ export function AffiliatesPage() {
                       <td className="px-4 py-3 text-gray-600 text-sm">
                         {new Date(a.createdAt).toLocaleDateString('fr-FR')}
                       </td>
+                      {hasAnyRole(['SUPER_ADMIN', 'ADMIN', 'SUPPORT']) && (
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => setDeleteModal({ open: true, affiliate: a })}
+                            className="text-red-600 hover:text-red-800 hover:underline text-sm font-medium"
+                            title="Supprimer cet affilié"
+                          >
+                            Supprimer
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -271,6 +307,48 @@ export function AffiliatesPage() {
         <div className="fixed bottom-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2">
           {purgeSuccess}
           <button type="button" onClick={() => setPurgeSuccess(null)} className="underline">Fermer</button>
+        </div>
+      )}
+
+      {/* Modale de confirmation de suppression d'un affilié */}
+      {deleteModal.open && deleteModal.affiliate && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold text-red-700 mb-2">Supprimer l'affilié</h3>
+            <p className="text-gray-600 mb-4">
+              Êtes-vous sûr de vouloir supprimer l'affilié <strong>{deleteModal.affiliate.merchant_code}</strong> ({deleteModal.affiliate.company_name}) ?
+              <br />
+              <span className="text-sm text-red-600 font-medium">Cette action est irréversible et supprimera également l'historique et les validations associées.</span>
+            </p>
+            {deleteError && (
+              <p className="mb-4 p-2 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{deleteError}</p>
+            )}
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => { setDeleteModal({ open: false, affiliate: null }); setDeleteError(null); }}
+                disabled={deleting}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={deleting}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleting ? 'Suppression...' : 'Supprimer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteSuccess && (
+        <div className="fixed bottom-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2">
+          {deleteSuccess}
+          <button type="button" onClick={() => setDeleteSuccess(null)} className="underline">Fermer</button>
         </div>
       )}
     </div>

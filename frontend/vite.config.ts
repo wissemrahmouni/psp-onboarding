@@ -11,11 +11,22 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    strictPort: false,
     host: true,
     proxy: {
       '/api': {
-        target: 'http://backend:4000',
+        target: process.env.VITE_PROXY_TARGET || 'http://localhost:4000',
         changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq, req) => {
+            if (req.method === 'POST' && req.headers['content-type']) {
+              proxyReq.setHeader('Content-Type', req.headers['content-type']);
+            }
+            if (req.method === 'POST' && req.headers['content-length']) {
+              proxyReq.setHeader('Content-Length', req.headers['content-length']);
+            }
+          });
+        },
       },
     },
   },

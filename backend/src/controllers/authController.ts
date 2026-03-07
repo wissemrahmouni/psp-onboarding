@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import { prisma } from '../services/prisma';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../utils/jwt';
 
@@ -8,7 +8,13 @@ export async function login(req: Request, res: Response) {
   if (!email || !password) {
     return res.status(400).json({ message: 'Email et mot de passe requis' });
   }
-  const user = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
+  let user;
+  try {
+    user = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
+  } catch (err) {
+    console.error('[Auth] DB error:', err);
+    return res.status(503).json({ message: 'Base de données injoignable. Vérifiez que PostgreSQL tourne (docker-compose up -d postgres) et que DATABASE_URL est correct dans backend/.env' });
+  }
   if (!user) {
     return res.status(401).json({ message: 'Identifiants incorrects' });
   }

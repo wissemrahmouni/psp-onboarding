@@ -4,7 +4,7 @@
   "description": "API Backend - Plateforme Onboarding Marchands PSP",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "node scripts/kill-port.js && tsx watch src/index.ts",
     "build": "npx tsc",
     "start": "node dist/index.js",
     "prisma:generate": "prisma generate",
@@ -15,8 +15,9 @@
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
-    "bcrypt": "^5.1.1",
+    "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
     "express": "^4.21.0",
     "express-validator": "^7.2.0",
     "jsonwebtoken": "^9.0.2",
@@ -25,7 +26,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@types/bcrypt": "^5.0.2",
+    "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.7",

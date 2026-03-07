@@ -9,5 +9,7 @@ const router = Router();
 router.get('/', authMiddleware, requireRole(UserRole.ADMIN, UserRole.SUPER_ADMIN), configController.list);
 router.patch('/', authMiddleware, requireRole(UserRole.ADMIN, UserRole.SUPER_ADMIN), configController.update);
 router.post('/generate-external-api-key', authMiddleware, requireRole(UserRole.ADMIN, UserRole.SUPER_ADMIN), configController.generateExternalApiKey);
+router.post('/smtp', authMiddleware, requireRole(UserRole.ADMIN, UserRole.SUPER_ADMIN), configController.updateSmtpConfig);
+router.post('/smtp/test', authMiddleware, requireRole(UserRole.ADMIN, UserRole.SUPER_ADMIN), configController.testSmtp);
 
 export default router;

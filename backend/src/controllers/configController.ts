@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import crypto from 'crypto';
 import { prisma } from '../services/prisma';
 import { ConfigCategory } from '@prisma/client';
+import { testSmtpConnection } from '../services/emailService';
 
 const EXTERNAL_API_KEY_NAME = 'EXTERNAL_API_KEY';
 
@@ -94,4 +95,103 @@ export async function generateExternalApiKey(req: Request, res: Response) {
     },
   });
   return res.json({ value: newKey, message: 'Clé générée et enregistrée. Copiez-la maintenant, elle ne sera plus affichée en clair.' });
+}
+
+interface SmtpConfigBody {
+  SMTP_HOST?: string;
+  SMTP_PORT?: string;
+  SMTP_SECURE?: string;
+  SMTP_USER?: string;
+  SMTP_PASS?: string;
+  SMTP_FROM_EMAIL?: string;
+  SMTP_FROM_NAME?: string;
+}
+
+/**
+ * Crée ou met à jour les paramètres SMTP.
+ * Permet de créer des configurations SMTP si elles n'existent pas encore.
+ */
+export async function updateSmtpConfig(req: Request, res: Response) {
+  if (!req.user) return res.status(401).json({ message: 'Non authentifié' });
+  const body: SmtpConfigBody = req.body;
+  
+  const smtpKeys = [
+    { key: 'SMTP_HOST', description: 'Adresse du serveur SMTP (ex: smtp.gmail.com)', category: 'SMTP' as ConfigCategory },
+    { key: 'SMTP_PORT', description: 'Port SMTP (587 pour TLS, 465 pour SSL, 25 pour non sécurisé)', category: 'SMTP' as ConfigCategory },
+    { key: 'SMTP_SECURE', description: 'Utiliser SSL/TLS sécurisé (true/false)', category: 'SMTP' as ConfigCategory },
+    { key: 'SMTP_USER', description: 'Nom d\'utilisateur SMTP (email)', category: 'SMTP' as ConfigCategory },
+    { key: 'SMTP_PASS', description: 'Mot de passe SMTP (sensible)', category: 'SMTP' as ConfigCategory },
+    { key: 'SMTP_FROM_EMAIL', description: 'Adresse email expéditrice par défaut', category: 'SMTP' as ConfigCategory },
+    { key: 'SMTP_FROM_NAME', description: 'Nom de l\'expéditeur affiché', category: 'SMTP' as ConfigCategory },
+  ];
+
+  const updates = [];
+  for (const smtpKey of smtpKeys) {
+    const value = body[smtpKey.key as keyof SmtpConfigBody];
+    if (value !== undefined) {
+      await prisma.configuration.upsert({
+        where: { key: smtpKey.key },
+        update: {
+          value: String(value),
+          description: smtpKey.description,
+          category: smtpKey.category,
+          updatedBy: req.user.userId,
+          updatedAt: new Date(),
+        },
+        create: {
+          key: smtpKey.key,
+          value: String(value),
+          description: smtpKey.description,
+          category: smtpKey.category,
+          updatedBy: req.user.userId,
+          updatedAt: new Date(),
+        },
+      });
+      updates.push(smtpKey.key);
+    }
+  }
+
+  const configs = await prisma.configuration.findMany({
+    where: { category: 'SMTP' },
+    orderBy: { key: 'asc' },
+    include: { updatedByUser: { select: { firstName: true, lastName: true, email: true } } },
+  });
+
+  return res.json({
+    message: updates.length > 0 ? `${updates.length} paramètre(s) SMTP mis à jour` : 'Aucune modification',
+    configs: configs.map((c) => ({
+      key: c.key,
+      value: c.value,
+      description: c.description,
+      category: c.category,
+      updatedAt: c.updatedAt,
+      updatedBy: c.updatedByUser ? `${c.updatedByUser.firstName} ${c.updatedByUser.lastName}`.trim() || c.updatedByUser.email : null,
+    })),
+  });
+}
+
+/**
+ * Teste la connexion SMTP avec les paramètres configurés.
+ * Optionnellement envoie un email de test à l'utilisateur connecté.
+ */
+export async function testSmtp(req: Request, res: Response) {
+  if (!req.user) return res.status(401).json({ message: 'Non authentifié' });
+  
+  const body = req.body as { testEmail?: string };
+  const testEmail = body.testEmail || req.user.email;
+
+  const result = await testSmtpConnection(testEmail);
+  
+  if (result.success) {
+    return res.json({
+      success: true,
+      message: result.message,
+    });
+  } else {
+    return res.status(400).json({
+      success: false,
+      message: result.message,
+      error: result.error,
+    });
+  }
 }

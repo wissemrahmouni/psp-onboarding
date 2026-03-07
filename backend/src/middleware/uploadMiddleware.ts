@@ -33,3 +33,21 @@ export const uploadExcel = multer({
   fileFilter,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
 });
+
+const EMAIL_ATTACHMENT_EXT = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.csv', '.jpg', '.jpeg', '.png', '.gif', '.zip'];
+
+const emailAttachmentFilter = (_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  const ext = path.extname(file.originalname).toLowerCase();
+  if (!EMAIL_ATTACHMENT_EXT.includes(ext)) {
+    return cb(new Error(`Type de fichier non autorisé. Autorisés: ${EMAIL_ATTACHMENT_EXT.join(', ')}`));
+  }
+  cb(null, true);
+};
+
+const memoryStorage = multer.memoryStorage();
+
+export const uploadEmailAttachments = multer({
+  storage: memoryStorage,
+  fileFilter: emailAttachmentFilter,
+  limits: { fileSize: 10 * 1024 * 1024, files: 5 }, // 10 MB par fichier, max 5 fichiers
+});

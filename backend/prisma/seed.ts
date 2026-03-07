@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
@@ -26,6 +26,14 @@ async function main() {
     // Général
     { key: 'APP_LOGO_URL', value: '', description: 'URL du logo affiché dans l\'application', category: 'GENERAL' as const },
     { key: 'APP_NAME', value: 'PSP Onboarding', description: 'Nom de l\'application affiché dans l\'en-tête', category: 'GENERAL' as const },
+    // SMTP — Configuration email
+    { key: 'SMTP_HOST', value: '', description: 'Adresse du serveur SMTP (ex: smtp.gmail.com)', category: 'SMTP' as const },
+    { key: 'SMTP_PORT', value: '587', description: 'Port SMTP (587 pour TLS, 465 pour SSL, 25 pour non sécurisé)', category: 'SMTP' as const },
+    { key: 'SMTP_SECURE', value: 'false', description: 'Utiliser SSL/TLS sécurisé (true/false)', category: 'SMTP' as const },
+    { key: 'SMTP_USER', value: '', description: 'Nom d\'utilisateur SMTP (email)', category: 'SMTP' as const },
+    { key: 'SMTP_PASS', value: '', description: 'Mot de passe SMTP (sensible)', category: 'SMTP' as const },
+    { key: 'SMTP_FROM_EMAIL', value: '', description: 'Adresse email expéditrice par défaut', category: 'SMTP' as const },
+    { key: 'SMTP_FROM_NAME', value: 'PSP Onboarding', description: 'Nom de l\'expéditeur affiché', category: 'SMTP' as const },
     // Documentation Test
     { key: 'TEST_DOCUMENTATION_URL', value: 'https://docs.example.com/test', description: 'URL de la documentation technique (environnement test)', category: 'TEST_DOC' as const },
     { key: 'TEST_DOCUMENTATION_TEXT', value: '<p>Kit de test Clic to Pay</p>', description: 'Contenu HTML du kit de test', category: 'TEST_DOC' as const },

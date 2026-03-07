@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import type { User } from '../types/auth';
+import { safeParseJson } from '../services/api';
 
 const REFRESH_TOKEN_KEY = 'psp_refresh_token';
 
@@ -38,8 +39,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (res.ok) {
-      const data = await res.json();
-      setUser(data);
+      const data = await safeParseJson(res, null);
+      if (data) setUser(data);
     } else {
       setUser(null);
       setAccessToken(null);
@@ -58,7 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: refresh }),
     })
-      .then((r) => r.json())
+      .then((r) => safeParseJson<{ access_token?: string }>(r, {}))
       .then((data) => {
         if (data.access_token) {
           setAccessToken(data.access_token);
@@ -73,12 +74,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(
     async (email: string, password: string) => {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await res.json();
+      let res: Response;
+      try {
+        res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : '';
+        if (msg.includes('fetch') || msg.includes('network') || msg.includes('Failed')) {
+          throw new Error('Backend injoignable. Vérifiez que le backend est démarré (npm run dev dans backend/) et que le proxy pointe vers localhost:4000.');
+        }
+        throw err;
+      }
+      const data = await safeParseJson<{ access_token?: string; refresh_token?: string; user?: User; message?: string }>(res, {});
       if (!res.ok) {
         throw new Error(data.message || 'Connexion impossible');
       }

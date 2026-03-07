@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { apiRequest } from '@/services/api';
-import { Eye, EyeOff, KeyRound, FileText, RefreshCw, Copy, Check } from 'lucide-react';
+import { apiRequest, safeParseJson, fetchWithAuth } from '@/services/api';
+import { Eye, EyeOff, KeyRound, FileText, RefreshCw, Copy, Check, Save, Mail } from 'lucide-react';
 
 interface ConfigItem {
   key: string;
@@ -40,6 +40,306 @@ function formatDate(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+interface SmtpConfigFormProps {
+  configs: ConfigItem[];
+  onUpdate: () => void;
+}
+
+function SmtpConfigForm({ configs, onUpdate }: SmtpConfigFormProps) {
+  const smtpConfigs = configs.filter((c) => c.category === 'SMTP');
+  const [formData, setFormData] = useState({
+    SMTP_HOST: smtpConfigs.find((c) => c.key === 'SMTP_HOST')?.value || '',
+    SMTP_PORT: smtpConfigs.find((c) => c.key === 'SMTP_PORT')?.value || '587',
+    SMTP_SECURE: smtpConfigs.find((c) => c.key === 'SMTP_SECURE')?.value || 'false',
+    SMTP_USER: smtpConfigs.find((c) => c.key === 'SMTP_USER')?.value || '',
+    SMTP_PASS: smtpConfigs.find((c) => c.key === 'SMTP_PASS')?.value || '',
+    SMTP_FROM_EMAIL: smtpConfigs.find((c) => c.key === 'SMTP_FROM_EMAIL')?.value || '',
+    SMTP_FROM_NAME: smtpConfigs.find((c) => c.key === 'SMTP_FROM_NAME')?.value || 'PSP Onboarding',
+  });
+  const [isConfigured, setIsConfigured] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string; error?: string } | null>(null);
+  const [testEmail, setTestEmail] = useState('wissem@gmail.com');
+
+  useEffect(() => {
+    const smtpConfigs = configs.filter((c) => c.category === 'SMTP');
+    const host = smtpConfigs.find((c) => c.key === 'SMTP_HOST')?.value || '';
+    const user = smtpConfigs.find((c) => c.key === 'SMTP_USER')?.value || '';
+    const pass = smtpConfigs.find((c) => c.key === 'SMTP_PASS')?.value || '';
+    setIsConfigured(!!(host && user && pass));
+    setFormData({
+      SMTP_HOST: host,
+      SMTP_PORT: smtpConfigs.find((c) => c.key === 'SMTP_PORT')?.value || '587',
+      SMTP_SECURE: smtpConfigs.find((c) => c.key === 'SMTP_SECURE')?.value || 'false',
+      SMTP_USER: user,
+      SMTP_PASS: pass,
+      SMTP_FROM_EMAIL: smtpConfigs.find((c) => c.key === 'SMTP_FROM_EMAIL')?.value || '',
+      SMTP_FROM_NAME: smtpConfigs.find((c) => c.key === 'SMTP_FROM_NAME')?.value || 'PSP Onboarding',
+    });
+  }, [configs]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccess(false);
+    setSaving(true);
+
+    try {
+      await apiRequest('/api/config/smtp', {
+        method: 'POST',
+        body: JSON.stringify(formData),
+      });
+      setSuccess(true);
+      onUpdate();
+      setTimeout(() => setSuccess(false), 3000);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erreur lors de la sauvegarde');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    setTestResult(null);
+    setError('');
+    setTesting(true);
+
+    try {
+      // D'abord sauvegarder les paramètres actuels s'ils ont changé
+      await apiRequest('/api/config/smtp', {
+        method: 'POST',
+        body: JSON.stringify(formData),
+      });
+      
+      // Ensuite tester la connexion - gérer manuellement pour extraire les détails d'erreur
+      const res = await fetchWithAuth('/api/config/smtp/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ testEmail: testEmail.trim() || undefined }),
+      });
+      
+      const result = await safeParseJson<{ success?: boolean; message?: string; error?: string }>(res, { success: false, message: 'Erreur de parsing', error: 'Erreur de parsing' }).catch(() => ({ success: false, message: 'Erreur de parsing de la réponse', error: 'Erreur de parsing de la réponse' }));
+      
+      if (res.ok && result.success) {
+        setTestResult({ success: true, message: result.message || 'OK' });
+        onUpdate();
+        setTimeout(() => setTestResult(null), 5000);
+      } else {
+        const errMsg = (result as { error?: string }).error ?? result.message ?? 'Erreur inconnue';
+        setTestResult({
+          success: false,
+          message: result.message || 'Échec du test SMTP',
+          error: errMsg,
+        });
+      }
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Erreur lors du test';
+      setTestResult({
+        success: false,
+        message: 'Échec du test SMTP',
+        error: errorMessage,
+      });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {!isConfigured && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+          <div className="flex items-start gap-3">
+            <svg className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <div>
+              <p className="font-medium text-amber-800">Configuration SMTP requise</p>
+              <p className="text-sm text-amber-700 mt-1">
+                Pour envoyer des e-mails aux marchands, veuillez configurer les paramètres SMTP ci-dessous.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
+          Paramètres SMTP sauvegardés avec succès !
+        </div>
+      )}
+      {testResult && (
+        <div className={`border rounded-lg p-3 text-sm ${testResult.success ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+          <div className="font-medium mb-1">{testResult.success ? '✓ Test réussi' : '✗ Test échoué'}</div>
+          <div>{testResult.message}</div>
+          {testResult.error && (
+            <div className="mt-2 text-xs font-mono bg-white/50 p-2 rounded border border-current/20">
+              {testResult.error}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Serveur SMTP (Host) <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            required
+            value={formData.SMTP_HOST}
+            onChange={(e) => setFormData({ ...formData, SMTP_HOST: e.target.value })}
+            placeholder="smtp.gmail.com"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Port SMTP <span className="text-red-500">*</span>
+          </label>
+          <select
+            value={formData.SMTP_PORT}
+            onChange={(e) => setFormData({ ...formData, SMTP_PORT: e.target.value })}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          >
+            <option value="25">25 (Non sécurisé)</option>
+            <option value="587">587 (TLS)</option>
+            <option value="465">465 (SSL)</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Connexion sécurisée
+          </label>
+          <select
+            value={formData.SMTP_SECURE}
+            onChange={(e) => setFormData({ ...formData, SMTP_SECURE: e.target.value })}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          >
+            <option value="false">Non (STARTTLS)</option>
+            <option value="true">Oui (SSL/TLS)</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Nom d'utilisateur (Email) <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="email"
+            required
+            value={formData.SMTP_USER}
+            onChange={(e) => setFormData({ ...formData, SMTP_USER: e.target.value })}
+            placeholder="votre-email@example.com"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Mot de passe <span className="text-red-500">*</span>
+          </label>
+          <div className="relative">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              required
+              value={formData.SMTP_PASS}
+              onChange={(e) => setFormData({ ...formData, SMTP_PASS: e.target.value })}
+              placeholder="••••••••"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm pr-10"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 p-1"
+            >
+              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Email expéditeur
+          </label>
+          <input
+            type="email"
+            value={formData.SMTP_FROM_EMAIL}
+            onChange={(e) => setFormData({ ...formData, SMTP_FROM_EMAIL: e.target.value })}
+            placeholder="noreply@example.com"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          />
+          <p className="text-xs text-gray-500 mt-1">Laissé vide pour utiliser SMTP_USER</p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Nom de l'expéditeur
+          </label>
+          <input
+            type="text"
+            value={formData.SMTP_FROM_NAME}
+            onChange={(e) => setFormData({ ...formData, SMTP_FROM_NAME: e.target.value })}
+            placeholder="PSP Onboarding"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 pt-2 border-t border-gray-200">
+        <button
+          type="submit"
+          disabled={saving || testing}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-blue-700 inline-flex items-center gap-2"
+        >
+          <Save className="w-4 h-4" />
+          {saving ? 'Sauvegarde...' : isConfigured ? 'Mettre à jour les paramètres SMTP' : 'Enregistrer les paramètres SMTP'}
+        </button>
+        {isConfigured && (
+          <>
+            <input
+              type="email"
+              value={testEmail}
+              onChange={(e) => setTestEmail(e.target.value)}
+              placeholder="Email de test"
+              className="w-56 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            />
+            <button
+              type="button"
+              onClick={handleTest}
+              disabled={testing || saving}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-green-700 inline-flex items-center gap-2"
+            >
+              <Mail className="w-4 h-4" />
+              {testing ? 'Test en cours...' : 'Tester les paramètres SMTP'}
+            </button>
+          </>
+        )}
+        <div className="flex-1">
+          <p className="text-xs text-gray-500">
+            Les paramètres seront utilisés pour l'envoi d'e-mails aux marchands (paramètres de test et production).
+          </p>
+          {isConfigured && (
+            <p className="text-xs text-green-600 mt-1">
+              ✓ Configuration SMTP active
+            </p>
+          )}
+        </div>
+      </div>
+    </form>
+  );
 }
 
 export function ConfigPage() {
@@ -165,6 +465,32 @@ export function ConfigPage() {
           API Reference
         </Link>.
       </p>
+
+      {/* Section SMTP - Formulaire d'ajout/modification - Toujours visible en premier */}
+      <section className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl shadow-md border-2 border-blue-300 p-6 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex-1">
+            <h2 className="text-xl font-semibold text-gray-800 flex items-center gap-2 mb-2">
+              <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              Configuration SMTP
+            </h2>
+            <p className="text-sm text-gray-700 mt-1">
+              Configurez les paramètres SMTP pour l'envoi d'e-mails aux marchands. Les paramètres peuvent être définis ici ou via les variables d'environnement.
+            </p>
+          </div>
+          {configs.filter((c) => c.category === 'SMTP').length > 0 && (
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-green-100 border-2 border-green-400 rounded-lg shadow-sm">
+              <div className="w-2.5 h-2.5 bg-green-600 rounded-full animate-pulse"></div>
+              <span className="text-xs font-semibold text-green-800">Configuré</span>
+            </div>
+          )}
+        </div>
+        <SmtpConfigForm configs={configs} onUpdate={() => {
+          apiRequest<ConfigItem[]>('/api/config').then(setConfigs).catch(() => {});
+        }} />
+      </section>
 
       {categoriesToRender.map((category) => (
         <section key={category} className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
@@ -325,20 +651,20 @@ export function ConfigPage() {
         </div>
       )}
 
+      <div className="mt-8 p-4 bg-slate-50 rounded-lg border border-slate-200 text-sm text-slate-600">
+        <p className="font-medium text-slate-700 mb-1">Note</p>
+        <p>
+          L'intégration Clic to Pay utilise les variables d'environnement du serveur (CLICTOPAY_API_BASE_URL, etc.).
+          Les paramètres SMTP peuvent être configurés ci-dessus ou via les variables d'environnement.
+        </p>
+      </div>
+
       {configs.length === 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-amber-800">
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-amber-800 mt-6">
           <p className="font-medium">Aucune configuration.</p>
           <p className="text-sm mt-1">Exécutez le seed de la base pour créer les clés par défaut (ex. EXTERNAL_API_KEY, documentation).</p>
         </div>
       )}
-
-      <div className="mt-8 p-4 bg-slate-50 rounded-lg border border-slate-200 text-sm text-slate-600">
-        <p className="font-medium text-slate-700 mb-1">Variables d'environnement</p>
-        <p>
-          L'envoi d'e-mails (SMTP) et l'intégration Clic to Pay utilisent les variables d'environnement du serveur
-          (SMTP_HOST, SMTP_USER, SMTP_PASS, CLICTOPAY_API_BASE_URL, etc.). Elles ne sont pas modifiables depuis cette page.
-        </p>
-      </div>
     </div>
   );
 }
