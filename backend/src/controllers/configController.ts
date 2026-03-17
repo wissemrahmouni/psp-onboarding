@@ -39,40 +39,46 @@ interface ConfigUpdateBody {
 export async function update(req: Request, res: Response) {
   if (!req.user) return res.status(401).json({ message: 'Non authentifié' });
   const body: ConfigUpdateBody = req.body;
-  const updates = body.updates;
-  if (Array.isArray(updates) && updates.length > 0) {
-    for (const u of updates) {
-      if (u.key) {
-        await prisma.configuration.updateMany({
-          where: { key: u.key },
-          data: { value: u.value ?? '', updatedBy: req.user.userId, updatedAt: new Date() },
-        });
+  try {
+    const updates = body.updates;
+    if (Array.isArray(updates) && updates.length > 0) {
+      for (const u of updates) {
+        if (u.key) {
+          await prisma.configuration.updateMany({
+            where: { key: u.key },
+            data: { value: u.value ?? '', updatedBy: req.user.userId, updatedAt: new Date() },
+          });
+        }
       }
+      const configs = await prisma.configuration.findMany({ orderBy: { key: 'asc' } });
+      return res.json(configs.map((c) => ({ key: c.key, value: c.value, description: c.description, category: c.category, updatedAt: c.updatedAt })));
     }
-    const configs = await prisma.configuration.findMany({ orderBy: { key: 'asc' } });
-    return res.json(configs.map((c) => ({ key: c.key, value: c.value, description: c.description, category: c.category, updatedAt: c.updatedAt })));
+    const key = body.key;
+    const value = body.value;
+    if (!key) return res.status(400).json({ message: 'key requis' });
+    const config = await prisma.configuration.updateMany({
+      where: { key },
+      data: { value: value ?? '', updatedBy: req.user.userId, updatedAt: new Date() },
+    });
+    if (config.count === 0) return res.status(404).json({ message: 'Clé non trouvée' });
+    const updated = await prisma.configuration.findUnique({
+      where: { key },
+      include: { updatedByUser: { select: { firstName: true, lastName: true, email: true } } },
+    });
+    if (!updated) return res.status(404).json({ message: 'Clé non trouvée' });
+    return res.json({
+      key: updated.key,
+      value: updated.value,
+      description: updated.description,
+      category: updated.category,
+      updatedAt: updated.updatedAt,
+      updatedBy: updated.updatedByUser ? `${updated.updatedByUser.firstName} ${updated.updatedByUser.lastName}`.trim() || updated.updatedByUser.email : null,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[Config] Erreur mise à jour config:', err);
+    return res.status(500).json({ message: `Erreur lors de la mise à jour: ${msg}` });
   }
-  const key = body.key;
-  const value = body.value;
-  if (!key) return res.status(400).json({ message: 'key requis' });
-  const config = await prisma.configuration.updateMany({
-    where: { key },
-    data: { value: value ?? '', updatedBy: req.user.userId, updatedAt: new Date() },
-  });
-  if (config.count === 0) return res.status(404).json({ message: 'Clé non trouvée' });
-  const updated = await prisma.configuration.findUnique({
-    where: { key },
-    include: { updatedByUser: { select: { firstName: true, lastName: true, email: true } } },
-  });
-  if (!updated) return res.status(404).json({ message: 'Clé non trouvée' });
-  return res.json({
-    key: updated.key,
-    value: updated.value,
-    description: updated.description,
-    category: updated.category,
-    updatedAt: updated.updatedAt,
-    updatedBy: updated.updatedByUser ? `${updated.updatedByUser.firstName} ${updated.updatedByUser.lastName}`.trim() || updated.updatedByUser.email : null,
-  });
 }
 
 /**
@@ -97,6 +103,64 @@ export async function generateExternalApiKey(req: Request, res: Response) {
   return res.json({ value: newKey, message: 'Clé générée et enregistrée. Copiez-la maintenant, elle ne sera plus affichée en clair.' });
 }
 
+interface ClicToPayConfigBody {
+  CLICTOPAY_TEST_URL?: string;
+  CLICTOPAY_PROD_URL?: string;
+  CLICTOPAY_TEST_USERNAME?: string;
+  CLICTOPAY_TEST_PASSWORD?: string;
+  CLICTOPAY_PROD_USERNAME?: string;
+  CLICTOPAY_PROD_PASSWORD?: string;
+}
+
+/**
+ * Crée ou met à jour les paramètres ClicToPay (synchronisation getStatus.do).
+ */
+export async function updateClicToPayConfig(req: Request, res: Response) {
+  if (!req.user) return res.status(401).json({ message: 'Non authentifié' });
+  const body = req.body as ClicToPayConfigBody;
+
+  const clictopayKeys = [
+    { key: 'CLICTOPAY_TEST_URL', description: 'URL API ClicToPay TEST (getStatus.do)', category: 'CLICTOPAY' as unknown as ConfigCategory },
+    { key: 'CLICTOPAY_PROD_URL', description: 'URL API ClicToPay PROD (getStatus.do)', category: 'CLICTOPAY' as unknown as ConfigCategory },
+    { key: 'CLICTOPAY_TEST_USERNAME', description: 'Identifiant ClicToPay (environnement TEST)', category: 'CLICTOPAY' as unknown as ConfigCategory },
+    { key: 'CLICTOPAY_TEST_PASSWORD', description: 'Mot de passe ClicToPay (environnement TEST)', category: 'CLICTOPAY' as unknown as ConfigCategory },
+    { key: 'CLICTOPAY_PROD_USERNAME', description: 'Identifiant ClicToPay (environnement PROD)', category: 'CLICTOPAY' as unknown as ConfigCategory },
+    { key: 'CLICTOPAY_PROD_PASSWORD', description: 'Mot de passe ClicToPay (environnement PROD)', category: 'CLICTOPAY' as unknown as ConfigCategory },
+  ];
+
+  try {
+    for (const item of clictopayKeys) {
+      const value = body[item.key as keyof ClicToPayConfigBody];
+      if (value !== undefined) {
+        await prisma.configuration.upsert({
+          where: { key: item.key },
+          update: { value: String(value), description: item.description, category: item.category, updatedBy: req.user.userId, updatedAt: new Date() },
+          create: { key: item.key, value: String(value), description: item.description, category: item.category, updatedBy: req.user.userId, updatedAt: new Date() },
+        });
+      }
+    }
+
+    const configs = await prisma.configuration.findMany({
+      where: { category: 'CLICTOPAY' as unknown as ConfigCategory },
+      orderBy: { key: 'asc' },
+    });
+
+    return res.json({
+      message: 'Paramètres ClicToPay enregistrés.',
+      configs: configs.map((c) => ({ key: c.key, value: c.value, description: c.description, category: c.category, updatedAt: c.updatedAt })),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const isEnumError = /invalid input value for enum|enum.*CLICTOPAY/i.test(msg);
+    console.error('[Config] Erreur mise à jour ClicToPay:', err);
+    return res.status(500).json({
+      message: isEnumError
+        ? 'La migration ClicToPay n\'a pas été appliquée. Exécutez: npx prisma migrate deploy puis npx prisma db seed'
+        : `Erreur lors de la sauvegarde: ${msg}`,
+    });
+  }
+}
+
 interface SmtpConfigBody {
   SMTP_HOST?: string;
   SMTP_PORT?: string;
@@ -114,7 +178,7 @@ interface SmtpConfigBody {
 export async function updateSmtpConfig(req: Request, res: Response) {
   if (!req.user) return res.status(401).json({ message: 'Non authentifié' });
   const body: SmtpConfigBody = req.body;
-  
+
   const smtpKeys = [
     { key: 'SMTP_HOST', description: 'Adresse du serveur SMTP (ex: smtp.gmail.com)', category: 'SMTP' as ConfigCategory },
     { key: 'SMTP_PORT', description: 'Port SMTP (587 pour TLS, 465 pour SSL, 25 pour non sécurisé)', category: 'SMTP' as ConfigCategory },
@@ -125,49 +189,55 @@ export async function updateSmtpConfig(req: Request, res: Response) {
     { key: 'SMTP_FROM_NAME', description: 'Nom de l\'expéditeur affiché', category: 'SMTP' as ConfigCategory },
   ];
 
-  const updates = [];
-  for (const smtpKey of smtpKeys) {
-    const value = body[smtpKey.key as keyof SmtpConfigBody];
-    if (value !== undefined) {
-      await prisma.configuration.upsert({
-        where: { key: smtpKey.key },
-        update: {
-          value: String(value),
-          description: smtpKey.description,
-          category: smtpKey.category,
-          updatedBy: req.user.userId,
-          updatedAt: new Date(),
-        },
-        create: {
-          key: smtpKey.key,
-          value: String(value),
-          description: smtpKey.description,
-          category: smtpKey.category,
-          updatedBy: req.user.userId,
-          updatedAt: new Date(),
-        },
-      });
-      updates.push(smtpKey.key);
+  try {
+    const updates = [];
+    for (const smtpKey of smtpKeys) {
+      const value = body[smtpKey.key as keyof SmtpConfigBody];
+      if (value !== undefined) {
+        await prisma.configuration.upsert({
+          where: { key: smtpKey.key },
+          update: {
+            value: String(value),
+            description: smtpKey.description,
+            category: smtpKey.category,
+            updatedBy: req.user.userId,
+            updatedAt: new Date(),
+          },
+          create: {
+            key: smtpKey.key,
+            value: String(value),
+            description: smtpKey.description,
+            category: smtpKey.category,
+            updatedBy: req.user.userId,
+            updatedAt: new Date(),
+          },
+        });
+        updates.push(smtpKey.key);
+      }
     }
+
+    const configs = await prisma.configuration.findMany({
+      where: { category: 'SMTP' },
+      orderBy: { key: 'asc' },
+      include: { updatedByUser: { select: { firstName: true, lastName: true, email: true } } },
+    });
+
+    return res.json({
+      message: updates.length > 0 ? `${updates.length} paramètre(s) SMTP mis à jour` : 'Aucune modification',
+      configs: configs.map((c) => ({
+        key: c.key,
+        value: c.value,
+        description: c.description,
+        category: c.category,
+        updatedAt: c.updatedAt,
+        updatedBy: c.updatedByUser ? `${c.updatedByUser.firstName} ${c.updatedByUser.lastName}`.trim() || c.updatedByUser.email : null,
+      })),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[Config] Erreur mise à jour SMTP:', err);
+    return res.status(500).json({ message: `Erreur lors de la sauvegarde SMTP: ${msg}` });
   }
-
-  const configs = await prisma.configuration.findMany({
-    where: { category: 'SMTP' },
-    orderBy: { key: 'asc' },
-    include: { updatedByUser: { select: { firstName: true, lastName: true, email: true } } },
-  });
-
-  return res.json({
-    message: updates.length > 0 ? `${updates.length} paramètre(s) SMTP mis à jour` : 'Aucune modification',
-    configs: configs.map((c) => ({
-      key: c.key,
-      value: c.value,
-      description: c.description,
-      category: c.category,
-      updatedAt: c.updatedAt,
-      updatedBy: c.updatedByUser ? `${c.updatedByUser.firstName} ${c.updatedByUser.lastName}`.trim() || c.updatedByUser.email : null,
-    })),
-  });
 }
 
 /**

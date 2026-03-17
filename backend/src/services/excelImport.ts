@@ -61,6 +61,26 @@ const REQUIRED_LABELS: Record<string, string> = {
   EMAIL: 'Email',
 };
 
+/**
+ * Convertit un numéro de série Excel (ex: 46086.45416666667) ou une chaîne date en ISO.
+ * Excel stocke les dates en jours depuis 1899-12-30. 25569 = 1970-01-01.
+ */
+function normalizeExcelDate(value: string | number | Date | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date && !isNaN(value.getTime())) return value.toISOString();
+  const str = String(value).trim();
+  if (!str) return null;
+  const num = parseFloat(str);
+  if (!isNaN(num) && num >= 1 && num < 1000000) {
+    const ms = (num - 25569) * 86400 * 1000;
+    const d = new Date(ms);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  }
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) return d.toISOString();
+  return str;
+}
+
 function normalizeHeader(c: unknown): string {
   const s = String(c ?? '')
     .trim()
@@ -152,7 +172,16 @@ export function parseExcelBuffer(buffer: Buffer): RowResult[] {
     HEADERS.forEach((h) => {
       const i = colIndex[h];
       const raw = i !== undefined && row[i] !== undefined && row[i] !== null ? row[i] : '';
-      const val = typeof raw === 'number' || typeof raw === 'object' ? String(raw) : String(raw).trim();
+      let rawForDate: string | number | Date | null | undefined = '';
+      if (typeof raw === 'string' || typeof raw === 'number') rawForDate = raw;
+      else if (raw instanceof Date) rawForDate = raw;
+      let val: string;
+      if (h === 'DATE_CREATION' || h === 'DATE_MODIFICATION') {
+        const normalized = normalizeExcelDate(rawForDate);
+        val = normalized ?? '';
+      } else {
+        val = typeof raw === 'number' || typeof raw === 'object' ? String(raw) : String(raw).trim();
+      }
       obj[h] = val.trim();
     });
     const data = obj as unknown as ExcelRow;

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiRequest, safeParseJson, fetchWithAuth } from '@/services/api';
-import { Eye, EyeOff, KeyRound, FileText, RefreshCw, Copy, Check, Save, Mail } from 'lucide-react';
+import { Eye, EyeOff, KeyRound, FileText, RefreshCw, Copy, Check, Save, Mail, Cloud } from 'lucide-react';
 
 interface ConfigItem {
   key: string;
@@ -16,14 +16,15 @@ const CATEGORY_LABELS: Record<string, string> = {
   API: 'API',
   GENERAL: 'Général',
   SMTP: 'SMTP (courriel)',
+  CLICTOPAY: 'ClicToPay (synchronisation)',
   TEST_DOC: 'Documentation Test',
   PROD_DOC: 'Documentation Prod',
 };
 
-const CATEGORY_ORDER = ['API', 'GENERAL', 'SMTP', 'TEST_DOC', 'PROD_DOC'];
+const CATEGORY_ORDER = ['API', 'GENERAL', 'SMTP', 'CLICTOPAY', 'TEST_DOC', 'PROD_DOC'];
 
 /** Clés dont la valeur est masquée par défaut (sécurité). */
-const SENSITIVE_KEYS = ['EXTERNAL_API_KEY', 'SMTP_PASS', 'SMTP_USER', 'API_KEY', 'SECRET'];
+const SENSITIVE_KEYS = ['EXTERNAL_API_KEY', 'SMTP_PASS', 'SMTP_USER', 'API_KEY', 'SECRET', 'CLICTOPAY_TEST_PASSWORD', 'CLICTOPAY_PROD_PASSWORD'];
 
 function isSensitiveKey(key: string): boolean {
   const u = key.toUpperCase();
@@ -342,6 +343,169 @@ function SmtpConfigForm({ configs, onUpdate }: SmtpConfigFormProps) {
   );
 }
 
+interface ClicToPayConfigFormProps {
+  configs: ConfigItem[];
+  onUpdate: () => void;
+}
+
+function ClicToPayConfigForm({ configs, onUpdate }: ClicToPayConfigFormProps) {
+  const clictopayConfigs = configs.filter((c) => c.category === 'CLICTOPAY');
+  const getVal = (key: string) => clictopayConfigs.find((c) => c.key === key)?.value || '';
+  const [formData, setFormData] = useState({
+    CLICTOPAY_TEST_URL: getVal('CLICTOPAY_TEST_URL') || 'https://test.clictopay.com/epg/rest/merchant/getStatus.do',
+    CLICTOPAY_PROD_URL: getVal('CLICTOPAY_PROD_URL') || 'https://www.clictopay.com/epg/rest/merchant/getStatus.do',
+    CLICTOPAY_TEST_USERNAME: getVal('CLICTOPAY_TEST_USERNAME'),
+    CLICTOPAY_TEST_PASSWORD: getVal('CLICTOPAY_TEST_PASSWORD'),
+    CLICTOPAY_PROD_USERNAME: getVal('CLICTOPAY_PROD_USERNAME'),
+    CLICTOPAY_PROD_PASSWORD: getVal('CLICTOPAY_PROD_PASSWORD'),
+  });
+  const [showTestPassword, setShowTestPassword] = useState(false);
+  const [showProdPassword, setShowProdPassword] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    setFormData({
+      CLICTOPAY_TEST_URL: getVal('CLICTOPAY_TEST_URL') || 'https://test.clictopay.com/epg/rest/merchant/getStatus.do',
+      CLICTOPAY_PROD_URL: getVal('CLICTOPAY_PROD_URL') || 'https://www.clictopay.com/epg/rest/merchant/getStatus.do',
+      CLICTOPAY_TEST_USERNAME: getVal('CLICTOPAY_TEST_USERNAME'),
+      CLICTOPAY_TEST_PASSWORD: getVal('CLICTOPAY_TEST_PASSWORD'),
+      CLICTOPAY_PROD_USERNAME: getVal('CLICTOPAY_PROD_USERNAME'),
+      CLICTOPAY_PROD_PASSWORD: getVal('CLICTOPAY_PROD_PASSWORD'),
+    });
+  }, [configs]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccess(false);
+    setSaving(true);
+    try {
+      await apiRequest('/api/config/clictopay', {
+        method: 'POST',
+        body: JSON.stringify(formData),
+      });
+      setSuccess(true);
+      onUpdate();
+      setTimeout(() => setSuccess(false), 3000);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erreur lors de la sauvegarde');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">{error}</div>
+      )}
+      {success && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
+          Paramètres ClicToPay enregistrés.
+        </div>
+      )}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="md:col-span-2">
+          <h3 className="text-sm font-semibold text-amber-800 mb-2">Environnement TEST</h3>
+        </div>
+        <div className="md:col-span-2">
+          <label className="block text-sm font-medium text-gray-700 mb-1">URL API TEST</label>
+          <input
+            type="url"
+            value={formData.CLICTOPAY_TEST_URL}
+            onChange={(e) => setFormData({ ...formData, CLICTOPAY_TEST_URL: e.target.value })}
+            placeholder="https://test.clictopay.com/epg/rest/merchant/getStatus.do"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Identifiant TEST</label>
+          <input
+            type="text"
+            value={formData.CLICTOPAY_TEST_USERNAME}
+            onChange={(e) => setFormData({ ...formData, CLICTOPAY_TEST_USERNAME: e.target.value })}
+            placeholder="Username"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Mot de passe TEST</label>
+          <div className="relative">
+            <input
+              type={showTestPassword ? 'text' : 'password'}
+              value={formData.CLICTOPAY_TEST_PASSWORD}
+              onChange={(e) => setFormData({ ...formData, CLICTOPAY_TEST_PASSWORD: e.target.value })}
+              placeholder="••••••••"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm pr-10"
+            />
+            <button
+              type="button"
+              onClick={() => setShowTestPassword(!showTestPassword)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 p-1"
+            >
+              {showTestPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+        <div className="md:col-span-2 mt-4">
+          <h3 className="text-sm font-semibold text-amber-800 mb-2">Environnement PROD</h3>
+        </div>
+        <div className="md:col-span-2">
+          <label className="block text-sm font-medium text-gray-700 mb-1">URL API PROD</label>
+          <input
+            type="url"
+            value={formData.CLICTOPAY_PROD_URL}
+            onChange={(e) => setFormData({ ...formData, CLICTOPAY_PROD_URL: e.target.value })}
+            placeholder="https://www.clictopay.com/epg/rest/merchant/getStatus.do"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Identifiant PROD</label>
+          <input
+            type="text"
+            value={formData.CLICTOPAY_PROD_USERNAME}
+            onChange={(e) => setFormData({ ...formData, CLICTOPAY_PROD_USERNAME: e.target.value })}
+            placeholder="Username"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Mot de passe PROD</label>
+          <div className="relative">
+            <input
+              type={showProdPassword ? 'text' : 'password'}
+              value={formData.CLICTOPAY_PROD_PASSWORD}
+              onChange={(e) => setFormData({ ...formData, CLICTOPAY_PROD_PASSWORD: e.target.value })}
+              placeholder="••••••••"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm pr-10"
+            />
+            <button
+              type="button"
+              onClick={() => setShowProdPassword(!showProdPassword)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 p-1"
+            >
+              {showProdPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-3 pt-2 border-t border-amber-200">
+        <button
+          type="submit"
+          disabled={saving}
+          className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-amber-700 inline-flex items-center gap-2"
+        >
+          <Save className="w-4 h-4" />
+          {saving ? 'Enregistrement...' : 'Enregistrer les paramètres ClicToPay'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 export function ConfigPage() {
   const [configs, setConfigs] = useState<ConfigItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -447,7 +611,7 @@ export function ConfigPage() {
     return acc;
   }, {});
 
-  const orderedCategories = CATEGORY_ORDER.filter((cat) => byCategory[cat]?.length);
+  const orderedCategories = CATEGORY_ORDER.filter((cat) => byCategory[cat]?.length && cat !== 'CLICTOPAY');
   const restCategories = Object.keys(byCategory).filter((c) => !CATEGORY_ORDER.includes(c));
   const categoriesToRender = [...orderedCategories, ...restCategories];
 
@@ -488,6 +652,24 @@ export function ConfigPage() {
           )}
         </div>
         <SmtpConfigForm configs={configs} onUpdate={() => {
+          apiRequest<ConfigItem[]>('/api/config').then(setConfigs).catch(() => {});
+        }} />
+      </section>
+
+      {/* Section ClicToPay - Configuration des APIs de synchronisation */}
+      <section className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl shadow-md border-2 border-amber-300 p-6 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex-1">
+            <h2 className="text-xl font-semibold text-gray-800 flex items-center gap-2 mb-2">
+              <Cloud className="w-6 h-6 text-amber-600" />
+              Configuration ClicToPay (synchronisation)
+            </h2>
+            <p className="text-sm text-gray-700 mt-1">
+              URLs et identifiants pour la synchronisation des affiliés avec les environnements TEST et PROD (API getStatus.do).
+            </p>
+          </div>
+        </div>
+        <ClicToPayConfigForm configs={configs} onUpdate={() => {
           apiRequest<ConfigItem[]>('/api/config').then(setConfigs).catch(() => {});
         }} />
       </section>
@@ -654,8 +836,8 @@ export function ConfigPage() {
       <div className="mt-8 p-4 bg-slate-50 rounded-lg border border-slate-200 text-sm text-slate-600">
         <p className="font-medium text-slate-700 mb-1">Note</p>
         <p>
-          L'intégration Clic to Pay utilise les variables d'environnement du serveur (CLICTOPAY_API_BASE_URL, etc.).
-          Les paramètres SMTP peuvent être configurés ci-dessus ou via les variables d'environnement.
+        Les paramètres ClicToPay (URLs et credentials) se configurent dans la section « Configuration ClicToPay » ci-dessus.
+        Les paramètres SMTP peuvent être configurés dans la section SMTP ou via les variables d'environnement.
         </p>
       </div>
 

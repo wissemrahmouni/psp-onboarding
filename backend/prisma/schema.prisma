@@ -91,6 +91,7 @@ model Affiliate {
   rne                String?          // RNE (fichier AFFILIATION)
   date_creation      String?         // Date Creation (brut Excel)
   date_modification  String?         // Date Modification (brut Excel)
+  effective_created_at DateTime?    // Date effective pour tri (date_creation parsée ou createdAt)
   type_cartes        String?         // Type Cartes (fichier AFFILIATION)
   bankId             String?
   bank               Bank?            @relation(fields: [bankId], references: [id])
@@ -108,6 +109,8 @@ model Affiliate {
   tests_validated_by String?
   testsValidatedBy   User?            @relation("ValidatedBy", fields: [tests_validated_by], references: [id])
 
+  clictopay_sync_status String?      // TEST | PROD | TEST/PROD — statut de synchronisation ClicToPay
+
   import_batch_id String?
   importBatch    ImportBatch?       @relation(fields: [import_batch_id], references: [id])
   created_by     String
@@ -119,6 +122,17 @@ model Affiliate {
 
   histories       AffiliateHistory[]
   testValidations TestValidation[]
+  clictopaySyncs  AffiliateClicToPaySync[]
+}
+
+model AffiliateClicToPaySync {
+  id           String   @id @default(cuid())
+  affiliate_id String
+  affiliate    Affiliate @relation(fields: [affiliate_id], references: [id], onDelete: Cascade)
+  environment  String   // TEST | PROD
+  api_response Json     // Données brutes retournées par l'API getStatus.do
+  synced_at    DateTime @default(now())
+  @@unique([affiliate_id, environment])
 }
 
 model ImportBatch {
@@ -176,6 +190,7 @@ enum ConfigCategory {
   SMTP
   API
   GENERAL
+  CLICTOPAY
 }
 
 model Configuration {

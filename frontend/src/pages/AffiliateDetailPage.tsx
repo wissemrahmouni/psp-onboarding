@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { apiRequest, fetchWithAuth, getApiBaseUrl } from '@/services/api';
 import { StatusBadge } from '@/components/StatusBadge';
+import { formatDateField } from '@/lib/utils';
 
 interface AffiliateDetail {
   id: string;
@@ -41,6 +42,13 @@ interface AffiliateDetail {
     createdAt: string;
     checkedBy: { firstName: string; lastName: string };
   }>;
+  clictopay_sync_status?: string | null;
+  clictopaySyncs?: Array<{
+    id: string;
+    environment: string;
+    api_response: Record<string, unknown>;
+    synced_at: string;
+  }>;
   [key: string]: unknown;
 }
 
@@ -56,7 +64,7 @@ export function AffiliateDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [affiliate, setAffiliate] = useState<AffiliateDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'info' | 'historique' | 'credentials' | 'validations'>('info');
+  const [tab, setTab] = useState<'info' | 'historique' | 'credentials' | 'validations' | 'clictopay'>('info');
   const [statusModal, setStatusModal] = useState(false);
   const [comment, setComment] = useState('');
   const [emailModalOpen, setEmailModalOpen] = useState(false);
@@ -221,7 +229,7 @@ export function AffiliateDetailPage() {
       </div>
 
       <div className="flex gap-2 border-b border-gray-200 mb-6">
-        {(['info', 'historique', 'credentials', 'validations'] as const).map((t) => (
+        {(['info', 'historique', 'credentials', 'validations', 'clictopay'] as const).map((t) => (
           <button
             key={t}
             type="button"
@@ -234,6 +242,7 @@ export function AffiliateDetailPage() {
             {t === 'historique' && 'Historique'}
             {t === 'credentials' && 'Credentials'}
             {t === 'validations' && 'Validations Tests'}
+            {t === 'clictopay' && 'ClicToPay'}
           </button>
         ))}
       </div>
@@ -254,15 +263,15 @@ export function AffiliateDetailPage() {
               ['CDP', affiliate.postal_code],
               ['Devise', affiliate.currency],
               ['RIB', affiliate.iban],
-              ['Date Creation', affiliate.date_creation],
-              ['Date Modification', affiliate.date_modification],
+              ['Date Creation', affiliate.date_creation, true],
+              ['Date Modification', affiliate.date_modification, true],
               ['Ajouter Par', affiliate.createdBy ? `${affiliate.createdBy.firstName} ${affiliate.createdBy.lastName} (${affiliate.createdBy.email})` : null],
               ['Webmaster', affiliate.technical_email],
               ['Type Cartes', affiliate.type_cartes],
-            ].map(([label, value]) => (
+            ].map(([label, value, isDate]) => (
               <div key={String(label)}>
                 <p className="text-gray-500">{label}</p>
-                <p className="font-medium">{value ?? '—'}</p>
+                <p className="font-medium">{isDate ? formatDateField(value) : (value ?? '—')}</p>
               </div>
             ))}
           </div>
@@ -351,6 +360,51 @@ export function AffiliateDetailPage() {
               ))
             )}
             </ul>
+          </div>
+        )}
+        {tab === 'clictopay' && (
+          <div className="space-y-6">
+            <div className="flex flex-wrap items-center gap-4">
+              <h3 className="text-lg font-medium text-gray-800">Synchronisation ClicToPay</h3>
+              {affiliate.clictopay_sync_status && (
+                <span className="px-3 py-1 bg-emerald-100 text-emerald-800 rounded-lg text-sm font-medium">
+                  Statut : {affiliate.clictopay_sync_status}
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-gray-500">
+              La synchronisation se lance depuis la page Affiliés (boutons « Synchroniser avec TEST » / « Synchroniser avec PROD »).
+              Les données sont mises à jour via le scan des merchantId. Chaque nouvelle sync écrase les données précédentes pour l'environnement concerné.
+            </p>
+            <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
+              <p className="font-medium text-amber-900 mb-1">Condition de synchronisation</p>
+              <p className="text-amber-800">
+                Cet affilié est mis à jour si : <strong>réponse.processingId</strong> = {affiliate.merchant_code} (Affiliation) <strong>ET</strong>{' '}
+                <strong>réponse.terminalId</strong> = {affiliate.numero_terminal ?? '—'} (Numéro Terminal).
+              </p>
+            </div>
+            {affiliate.clictopaySyncs && affiliate.clictopaySyncs.length > 0 ? (
+              <div className="space-y-4">
+                <h4 className="font-medium text-gray-700">Données synchronisées</h4>
+                {affiliate.clictopaySyncs.map((sync) => (
+                  <div key={sync.id} className="p-4 bg-gray-50 rounded-xl border border-gray-200">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="font-medium text-gray-800">
+                        {sync.environment === 'TEST' ? 'Environnement TEST' : 'Environnement PROD'}
+                      </span>
+                      <span className="text-sm text-gray-500">
+                        Dernière sync : {new Date(sync.synced_at).toLocaleString('fr-FR')}
+                      </span>
+                    </div>
+                    <pre className="text-xs bg-white p-3 rounded-lg overflow-x-auto max-h-48 overflow-y-auto border border-gray-200">
+                      {JSON.stringify(sync.api_response, null, 2)}
+                    </pre>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-500 text-sm">Aucune donnée synchronisée. Cliquez sur un bouton ci-dessus.</p>
+            )}
           </div>
         )}
       </div>

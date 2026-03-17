@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { apiRequest } from '@/services/api';
 import { StatusBadge } from '@/components/StatusBadge';
+import { getDisplayDate } from '@/lib/utils';
 
 interface DashboardStats {
   total_affiliates: number;
@@ -11,6 +12,7 @@ interface DashboardStats {
   in_production: number;
   blocked_affiliates: { id: string; merchant_code: string; company_name: string; status: string; updatedAt: string }[];
   monthly_trend: { month: string; count: number }[];
+  latest_affiliates?: { id: string; merchant_code: string; company_name: string; status: string; date_creation?: string | null; createdAt: string }[];
 }
 
 export function DashboardPage() {
@@ -61,11 +63,11 @@ export function DashboardPage() {
         <>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
             {[
-              { key: 'total', label: 'Total affiliés', value: stats.total_affiliates, filter: '' },
-              { key: 'CREATED_MERCHANT_MGT', label: 'Créés', value: stats.count_by_status.CREATED_MERCHANT_MGT ?? 0, filter: 'CREATED_MERCHANT_MGT' },
-              { key: 'AFFILIATION_CREATED', label: 'Affiliation créée', value: stats.count_by_status.AFFILIATION_CREATED ?? 0, filter: 'AFFILIATION_CREATED' },
-              { key: 'TEST_PARAMS_SENT', label: 'Param. test', value: stats.count_by_status.TEST_PARAMS_SENT ?? 0, filter: 'TEST_PARAMS_SENT' },
-              { key: 'TESTS_VALIDATED', label: 'Tests validés', value: stats.count_by_status.TESTS_VALIDATED ?? 0, filter: 'TESTS_VALIDATED' },
+              { key: 'total', label: 'Total affiliés', value: stats.total_affiliates ?? 0, filter: '' },
+              { key: 'CREATED_MERCHANT_MGT', label: 'Nouveaux', value: stats.count_by_status?.CREATED_MERCHANT_MGT ?? 0, filter: 'CREATED_MERCHANT_MGT' },
+              { key: 'AFFILIATION_CREATED', label: 'Pris en charge', value: stats.count_by_status?.AFFILIATION_CREATED ?? 0, filter: 'AFFILIATION_CREATED' },
+              { key: 'TEST_PARAMS_SENT', label: 'Param. test', value: stats.count_by_status?.TEST_PARAMS_SENT ?? 0, filter: 'TEST_PARAMS_SENT' },
+              { key: 'TESTS_VALIDATED', label: 'Tests validés', value: stats.count_by_status?.TESTS_VALIDATED ?? 0, filter: 'TESTS_VALIDATED' },
               { key: 'IN_PRODUCTION', label: 'En production', value: stats.in_production, filter: 'IN_PRODUCTION' },
             ].map((card) => (
               <Link
@@ -83,8 +85,9 @@ export function DashboardPage() {
             <div className="bg-white rounded-xl shadow p-6">
               <h2 className="text-lg font-medium text-gray-800 mb-4">Nouvelles fiches par mois</h2>
               <div className="h-64 flex items-end gap-1">
-                {stats.monthly_trend.map(({ month, count }) => {
-                  const max = Math.max(...stats.monthly_trend.map((d) => d.count), 1);
+                {(stats.monthly_trend ?? []).map(({ month, count }) => {
+                  const trend = stats.monthly_trend ?? [];
+                  const max = Math.max(...trend.map((d) => d.count), 1);
                   const h = (count / max) * 100;
                   return (
                     <div
@@ -106,11 +109,11 @@ export function DashboardPage() {
             </div>
             <div className="bg-white rounded-xl shadow p-6">
               <h2 className="text-lg font-medium text-gray-800 mb-4">Alertes — bloqués &gt; 7 jours</h2>
-              {stats.blocked_affiliates.length === 0 ? (
+              {!(stats.blocked_affiliates?.length) ? (
                 <p className="text-gray-500 text-sm">Aucun affilié bloqué.</p>
               ) : (
                 <ul className="space-y-2">
-                  {stats.blocked_affiliates.slice(0, 10).map((a) => (
+                  {(stats.blocked_affiliates ?? []).slice(0, 10).map((a) => (
                     <li key={a.id} className="flex items-center justify-between text-sm">
                       <Link to={`/affiliates/${a.id}`} className="text-blue-600 hover:underline">
                         {a.merchant_code} — {a.company_name}
@@ -130,7 +133,25 @@ export function DashboardPage() {
                 Voir tout
               </Link>
             </div>
-            <p className="text-gray-500 text-sm">Liste des 10 derniers affiliés disponible sur la page Affiliés.</p>
+            {stats.latest_affiliates && stats.latest_affiliates.length > 0 ? (
+              <ul className="space-y-2">
+                {stats.latest_affiliates.map((a) => (
+                  <li key={a.id} className="flex items-center justify-between text-sm">
+                    <Link to={`/affiliates/${a.id}`} className="text-blue-600 hover:underline">
+                      {a.merchant_code} — {a.company_name}
+                    </Link>
+                    <div className="flex items-center gap-2">
+                      <StatusBadge status={a.status} size="sm" />
+                      <span className="text-gray-500 text-xs">
+                        {getDisplayDate(a.date_creation, a.createdAt)}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-gray-500 text-sm">Aucun affilié pour le moment.</p>
+            )}
           </div>
         </>
       )}

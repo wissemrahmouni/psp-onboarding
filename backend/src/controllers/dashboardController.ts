@@ -2,13 +2,23 @@ import { Request, Response } from 'express';
 import { prisma } from '../services/prisma';
 import { AffiliateStatus } from '@prisma/client';
 
+/** Parse date_creation (Excel/API) pour extraire année-mois. Retourne null si invalide. */
+function parseCreationDate(dateStr: string | null): Date | null {
+  if (!dateStr || typeof dateStr !== 'string') return null;
+  const s = String(dateStr).trim();
+  if (!s) return null;
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return null;
+  return d;
+}
+
 export async function getStats(req: Request, res: Response) {
   if (!req.user) return res.status(401).json({ message: 'Non authentifié' });
   const where: { bankId?: string | null } = {};
   if (req.user.role === 'BANQUE' && req.user.bankId) {
     where.bankId = req.user.bankId;
   }
-  const [affiliates, countByStatusRaw, allForMonthly, blocked] = await Promise.all([
+  const [affiliates, countByStatusRaw, allForMonthly, blocked, latestAffiliates] = await Promise.all([
     prisma.affiliate.count({ where }),
     prisma.affiliate.groupBy({
       by: ['status'],
@@ -16,8 +26,8 @@ export async function getStats(req: Request, res: Response) {
       _count: { id: true },
     }),
     prisma.affiliate.findMany({
-      where: { ...where, createdAt: { gte: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000) } },
-      select: { createdAt: true },
+      where: { ...where, createdAt: { gte: new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000) } },
+      select: { date_creation: true, createdAt: true },
     }),
     prisma.affiliate.findMany({
       where: {
@@ -27,6 +37,15 @@ export async function getStats(req: Request, res: Response) {
       },
       take: 20,
       select: { id: true, merchant_code: true, company_name: true, status: true, updatedAt: true },
+    }),
+    prisma.affiliate.findMany({
+      where: {
+        ...where,
+        histories: { none: { old_status: { not: null } } },
+      },
+      take: 10,
+      orderBy: { effective_created_at: 'desc' },
+      select: { id: true, merchant_code: true, company_name: true, status: true, date_creation: true, createdAt: true },
     }),
   ]);
   const count_by_status: Record<string, number> = {};
@@ -55,7 +74,8 @@ export async function getStats(req: Request, res: Response) {
     monthMap[key] = 0;
   }
   allForMonthly.forEach((a) => {
-    const k = `${a.createdAt.getFullYear()}-${String(a.createdAt.getMonth() + 1).padStart(2, '0')}`;
+    const effectiveDate = parseCreationDate(a.date_creation) ?? a.createdAt;
+    const k = `${effectiveDate.getFullYear()}-${String(effectiveDate.getMonth() + 1).padStart(2, '0')}`;
     if (monthMap[k] !== undefined) monthMap[k]++;
   });
   const monthly_trend = Object.entries(monthMap).sort().map(([month, count]) => ({ month, count }));
@@ -67,5 +87,6 @@ export async function getStats(req: Request, res: Response) {
     blocked_affiliates: blocked,
     monthly_trend,
     avg_days_per_step: null,
+    latest_affiliates: latestAffiliates,
   });
 }

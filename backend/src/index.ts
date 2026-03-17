@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import 'express-async-errors';
 import express from 'express';
 import cors from 'cors';
 import authRoutes from './routes/authRoutes';
@@ -54,6 +55,13 @@ app.use('/api/affiliates', affiliateRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/v1', apiV1Routes);
+
+// Gestionnaire d'erreurs global (attrape les erreurs non gérées des routes async)
+app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const msg = err instanceof Error ? err.message : String(err);
+  console.error('[Express] Erreur non gérée:', err);
+  res.status(500).json({ message: msg || 'Erreur serveur interne' });
+});
 
 function tryListen(ports: number[], idx: number) {
   const port = ports[idx];

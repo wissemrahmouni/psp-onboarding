@@ -40,6 +40,13 @@ async function main() {
     // Documentation Prod
     { key: 'PROD_DOCUMENTATION_URL', value: 'https://docs.example.com/prod', description: 'URL de la documentation technique (environnement production)', category: 'PROD_DOC' as const },
     { key: 'PROD_DOCUMENTATION_TEXT', value: '<p>Kit de production Clic to Pay</p>', description: 'Contenu HTML du kit production', category: 'PROD_DOC' as const },
+    // ClicToPay — Synchronisation getStatus.do
+    { key: 'CLICTOPAY_TEST_URL', value: 'https://test.clictopay.com/epg/rest/merchant/getStatus.do', description: 'URL API ClicToPay TEST (getStatus.do)', category: 'CLICTOPAY' as const },
+    { key: 'CLICTOPAY_PROD_URL', value: 'https://www.clictopay.com/epg/rest/merchant/getStatus.do', description: 'URL API ClicToPay PROD (getStatus.do)', category: 'CLICTOPAY' as const },
+    { key: 'CLICTOPAY_TEST_USERNAME', value: '', description: 'Identifiant ClicToPay (environnement TEST)', category: 'CLICTOPAY' as const },
+    { key: 'CLICTOPAY_TEST_PASSWORD', value: '', description: 'Mot de passe ClicToPay (environnement TEST)', category: 'CLICTOPAY' as const },
+    { key: 'CLICTOPAY_PROD_USERNAME', value: '', description: 'Identifiant ClicToPay (environnement PROD)', category: 'CLICTOPAY' as const },
+    { key: 'CLICTOPAY_PROD_PASSWORD', value: '', description: 'Mot de passe ClicToPay (environnement PROD)', category: 'CLICTOPAY' as const },
   ];
 
   for (const c of configs) {

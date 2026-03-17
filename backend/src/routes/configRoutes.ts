@@ -11,5 +11,6 @@ router.patch('/', authMiddleware, requireRole(UserRole.ADMIN, UserRole.SUPER_ADM
 router.post('/generate-external-api-key', authMiddleware, requireRole(UserRole.ADMIN, UserRole.SUPER_ADMIN), configController.generateExternalApiKey);
 router.post('/smtp', authMiddleware, requireRole(UserRole.ADMIN, UserRole.SUPER_ADMIN), configController.updateSmtpConfig);
 router.post('/smtp/test', authMiddleware, requireRole(UserRole.ADMIN, UserRole.SUPER_ADMIN), configController.testSmtp);
+router.post('/clictopay', authMiddleware, requireRole(UserRole.ADMIN, UserRole.SUPER_ADMIN), configController.updateClicToPayConfig);
 
 export default router;

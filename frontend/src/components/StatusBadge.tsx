@@ -1,8 +1,8 @@
 import { cn } from '@/lib/utils';
 
 const STATUS_LABELS: Record<string, string> = {
-  CREATED_MERCHANT_MGT: 'Créé',
-  AFFILIATION_CREATED: 'Affiliation créée',
+  CREATED_MERCHANT_MGT: 'Nouveau',
+  AFFILIATION_CREATED: 'Pris en charge',
   TEST_PARAMS_SENT: 'Param. test envoyés',
   TESTS_VALIDATED: 'Tests validés',
   PROD_PARAMS_SENT: 'Param. prod envoyés',
